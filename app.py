@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import gspread
 from datetime import date, timedelta
+import json
 from google.oauth2.service_account import Credentials
 from dotenv import load_dotenv
 import os
@@ -14,20 +15,44 @@ from pathlib import Path
 
 
 # ===== 設定ここから =====
-
-# あなたのスプレッドシートIDを入れてください
 SHEET_ID = "1UGc51y_ec9rzCGBAgx-xVeZVvjK3miNJwWaRpCe-IhI"
 
-# サービスアカウントJSONファイル名
-SERVICE_ACCOUNT_FILE = "service_account.json"  # リネームした場合はこの名前に合わせる
-
-# Google Sheets API のスコープ
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
-
 # ===== 設定ここまで =====
+
+@st.cache_resource
+def get_gspread_client():
+    """
+    service_account.json ファイルは使わず、
+    環境変数 or secrets の JSON 文字列から認証する。
+    """
+
+    # ① Streamlit Cloud / secrets.toml
+    sa_json_str = None
+    try:
+        sa_json_str = st.secrets.get("GCP_SERVICE_ACCOUNT", None)
+    except Exception:
+        sa_json_str = None
+
+    # ② ローカル .env / OS環境変数
+    if not sa_json_str:
+        sa_json_str = os.getenv("GCP_SERVICE_ACCOUNT")
+
+    if not sa_json_str:
+        raise FileNotFoundError(
+            "GCP_SERVICE_ACCOUNT が見つかりません。\n"
+            "Streamlit の Secrets か .env に 1行JSON を設定してください。"
+        )
+
+    # JSON文字列 → dict
+    sa_info = json.loads(sa_json_str)
+
+    creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
+    client = gspread.authorize(creds)
+    return client
 
 # -----------------------------------
 # 🔖 選択肢マスタ（上の方に配置）
@@ -246,15 +271,6 @@ def guide_bot_answer(message: str) -> str:
         "もう少し具体的に質問してもらえれば、詳しく説明します！"
     )
 
-
-@st.cache_resource
-def get_gspread_client():
-    creds = Credentials.from_service_account_file(
-        SERVICE_ACCOUNT_FILE,
-        scopes=SCOPES
-    )
-    client = gspread.authorize(creds)
-    return client
 
 # 進行スケジュール用の設定
 PROJECT_START = date(2025, 11, 25)   # Day=1 の日付
