@@ -22,39 +22,61 @@ SCOPES = [
 
 @st.cache_resource
 def get_gspread_client():
-    """Streamlit secrets or 環境変数からサービスアカウントを読み込む"""
+    """
+    Google スプレッドシート用の gspread クライアントを取得する。
 
+    優先順位：
+    1. Streamlit Cloud の secrets: [gcp_service_account]
+    2. 環境変数 GCP_SERVICE_ACCOUNT（JSON 文字列 or ファイルパス）
+    3. ローカルの service_account.json ファイル
+    """
     sa_info = None
 
-    # ① Streamlit Cloud / secrets.toml
+    # ① Streamlit Cloud の secrets（推奨）
     try:
-        if "GCP_SERVICE_ACCOUNT" in st.secrets:
-            raw = st.secrets["GCP_SERVICE_ACCOUNT"]
-            # テーブル形式なら dict / Mapping になっている
-            if isinstance(raw, dict):
-                sa_info = dict(raw)
-            else:
-                # もしまだ文字列で入っている場合は JSON として解釈
-                sa_info = json.loads(raw)
+        if "gcp_service_account" in st.secrets:
+            # st.secrets は MappingProxyType なので dict に変換
+            sa_info = dict(st.secrets["gcp_service_account"])
     except Exception:
-        sa_info = None
+        # ローカル開発で secrets.toml が無いとき用に握りつぶす
+        pass
 
-    # ② ローカル実行用: .env / OS 環境変数（1行JSON）
+    # ② 環境変数 GCP_SERVICE_ACCOUNT を JSON として読む
     if sa_info is None:
         sa_json = os.getenv("GCP_SERVICE_ACCOUNT")
         if sa_json:
-            sa_info = json.loads(sa_json)
+            try:
+                sa_info = json.loads(sa_json)
+            except json.JSONDecodeError:
+                # JSON じゃなければ「ファイルパス」とみなして読む
+                if os.path.exists(sa_json):
+                    creds = Credentials.from_service_account_file(
+                        sa_json, scopes=SCOPES
+                    )
+                    return gspread.authorize(creds)
+                else:
+                    raise RuntimeError(
+                        "環境変数 GCP_SERVICE_ACCOUNT が JSON でもファイルパスでもありません。"
+                    )
 
+    # ③ プロジェクト直下の service_account.json を読む（ローカル用）
+    if sa_info is None and os.path.exists("service_account.json"):
+        with open("service_account.json", "r", encoding="utf-8") as f:
+            sa_info = json.load(f)
+
+    # どれにも無ければエラー
     if sa_info is None:
         raise RuntimeError(
             "GCP_SERVICE_ACCOUNT が見つかりません。\n"
-            "Streamlit Secrets か .env にサービスアカウント情報を設定してください。"
+            "Streamlit Secrets の [gcp_service_account]、"
+            "または環境変数 GCP_SERVICE_ACCOUNT、"
+            "もしくは service_account.json を設定してください。"
         )
 
-    # ここで private_key を含む dict をそのまま渡す
+    # 共通：dict から Credentials を作成
     creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
-    client = gspread.authorize(creds)
-    return client
+    return gspread.authorize(creds)
+
 
 
 # -----------------------------------
