@@ -13,46 +13,49 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from pathlib import Path
 
-
-# ===== 設定ここから =====
 SHEET_ID = "1UGc51y_ec9rzCGBAgx-xVeZVvjK3miNJwWaRpCe-IhI"
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
+    "https://www.googleapis.com/auth/drive",
 ]
-# ===== 設定ここまで =====
 
 @st.cache_resource
 def get_gspread_client():
-    """
-    service_account.json ファイルは使わず、
-    環境変数 or secrets の JSON 文字列から認証する。
-    """
+    """Streamlit secrets or 環境変数からサービスアカウントを読み込む"""
+
+    sa_info = None
 
     # ① Streamlit Cloud / secrets.toml
-    sa_json_str = None
     try:
-        sa_json_str = st.secrets.get("GCP_SERVICE_ACCOUNT", None)
+        if "GCP_SERVICE_ACCOUNT" in st.secrets:
+            raw = st.secrets["GCP_SERVICE_ACCOUNT"]
+            # テーブル形式なら dict / Mapping になっている
+            if isinstance(raw, dict):
+                sa_info = dict(raw)
+            else:
+                # もしまだ文字列で入っている場合は JSON として解釈
+                sa_info = json.loads(raw)
     except Exception:
-        sa_json_str = None
+        sa_info = None
 
-    # ② ローカル .env / OS環境変数
-    if not sa_json_str:
-        sa_json_str = os.getenv("GCP_SERVICE_ACCOUNT")
+    # ② ローカル実行用: .env / OS 環境変数（1行JSON）
+    if sa_info is None:
+        sa_json = os.getenv("GCP_SERVICE_ACCOUNT")
+        if sa_json:
+            sa_info = json.loads(sa_json)
 
-    if not sa_json_str:
-        raise FileNotFoundError(
+    if sa_info is None:
+        raise RuntimeError(
             "GCP_SERVICE_ACCOUNT が見つかりません。\n"
-            "Streamlit の Secrets か .env に 1行JSON を設定してください。"
+            "Streamlit Secrets か .env にサービスアカウント情報を設定してください。"
         )
 
-    # JSON文字列 → dict
-    sa_info = json.loads(sa_json_str)
-
+    # ここで private_key を含む dict をそのまま渡す
     creds = Credentials.from_service_account_info(sa_info, scopes=SCOPES)
     client = gspread.authorize(creds)
     return client
+
 
 # -----------------------------------
 # 🔖 選択肢マスタ（上の方に配置）
