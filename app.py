@@ -78,7 +78,6 @@ def get_gspread_client():
     return gspread.authorize(creds)
 
 
-
 # -----------------------------------
 # 🔖 選択肢マスタ（上の方に配置）
 # -----------------------------------
@@ -90,25 +89,26 @@ Phase_OPTIONS = [
 ]
 
 Category_OPTIONS = [
-    "データ",
-    "料理",
-    "日本酒",
-    "メニュー",
-    "スタッフ",
-    "SNS",
-    "EC",
-    "ブランド",
-    "バックオフィス",
-    "店頭",
-    "内装"
+    "開業計画",
+    "物件",
+    "店舗工事",
+    "メニュー計画",
+    "スタッフ採用・教育",
+    "販促営業活動",
+    "備品関連"
+    "管理データシステム構築",
+    "営業準備",
+    "試飲会レセプション"
 ]
 
 Owner_OPTIONS = [
     "店長",
     "副店長",
     "料理長",
-    "スタッフA",
-    "スタッフB",
+    "オーナー",
+    "まみさん",
+    "コンサルタント",
+    "スタッフ",
     "外部業者"
 ]
 
@@ -409,9 +409,6 @@ def style_row(row):
 
     return [base] * len(row)
 
-from datetime import date, datetime
-import pandas as pd
-
 def fade_past_days(df: pd.DataFrame) -> pd.DataFrame:
     """
     ガントチャート用：
@@ -446,7 +443,6 @@ def fade_past_days(df: pd.DataFrame) -> pd.DataFrame:
     return styles
 
 
-
 def highlight_status(row):
     status = row.get("ステータス", "")
     if status == "完了":
@@ -472,7 +468,7 @@ def build_schedule_table(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.copy()
 
-    # 🔽 ここを追加：Phase / タスク名 を必ず文字列に
+    # 文字列にそろえる
     df["Phase"] = df["Phase"].astype(str)
     df["タスク名"] = df["タスク名"].astype(str)
 
@@ -480,6 +476,7 @@ def build_schedule_table(df: pd.DataFrame) -> pd.DataFrame:
     df["開始日"] = pd.to_datetime(df["開始日"], errors="coerce").dt.date
     df["終了日"] = pd.to_datetime(df["終了日"], errors="coerce").dt.date
 
+    # 欠損の補正
     df["開始日"] = df["開始日"].fillna(PROJECT_START)
     df["終了日"] = df["終了日"].fillna(df["開始日"])
 
@@ -516,26 +513,95 @@ def build_schedule_table(df: pd.DataFrame) -> pd.DataFrame:
         start_idx = start_day - 1
         end_idx = end_day - 1
 
+        # ★ ステータスを取得（該当なければ空文字）
+        status = str(row.get("ステータス", "")).strip()
+
         row_data = {
             "No.": int(row["No."]),
             "Phase": row.get("Phase", ""),
             "カテゴリ": row.get("カテゴリ", ""),
             "タスク名": row.get("タスク名", ""),
             "担当": row.get("担当", ""),
+            "ステータス": status,   # ★ ステータス列もガントに表示
             "開始日": row["開始日"],
             "終了日": row["終了日"],
         }
 
         for idx, label in enumerate(date_labels):
             if start_idx <= idx <= end_idx:
-                row_data[label] = "●" if start_day == end_day else "■"
+                # ★ ステータスに応じて記号を切り替え
+                if status == "完了":
+                    mark = "✔"                  # 完了タスクは期間中ずっとチェック
+                else:
+                    mark = "●" if start_day == end_day else "■"  # 従来仕様
+                row_data[label] = mark
             else:
                 row_data[label] = ""
 
         rows.append(row_data)
 
     sched_df = pd.DataFrame(rows)
-    fixed = ["No.", "Phase", "カテゴリ", "タスク名", "担当", "開始日", "終了日"]
+
+    fixed = ["No.", "Phase", "カテゴリ", "タスク名", "担当", "ステータス", "開始日", "終了日"]
+    others = [c for c in sched_df.columns if c not in fixed]
+    return sched_df[fixed + others]
+
+@st.cache_data
+def build_schedule_table_weekly(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame()
+
+    df = df.copy()
+    df["開始日"] = pd.to_datetime(df["開始日"]).dt.date
+    df["終了日"] = pd.to_datetime(df["終了日"]).dt.date
+
+    df["開始日"] = df["開始日"].fillna(PROJECT_START)
+    df["終了日"] = df["終了日"].fillna(df["開始日"])
+
+    df["開始Week"] = df["開始日"].apply(lambda d: (d - PROJECT_START).days // 7 + 1)
+    df["終了Week"] = df["終了日"].apply(lambda d: (d - PROJECT_START).days // 7 + 1)
+
+    df = df.sort_values(["開始Week", "Phase"]).reset_index(drop=True)
+    df["No."] = df.index + 1
+
+    max_week = int(df["終了Week"].max())
+
+    # ▼ 週表示：11月4週目、12月1週目… にする
+    week_labels = []
+    for w in range(max_week):
+        week_start = PROJECT_START + timedelta(days=w * 7)  # 週の開始日
+        month = week_start.month
+        # ▼ 月内の週番号：1〜5
+        week_of_month = (week_start.day - 1) // 7 + 1
+        label = f"{month}月{week_of_month}週目"
+        week_labels.append(label)
+
+    rows = []
+    for _, row in df.iterrows():
+        start_w = int(row["開始Week"])
+        end_w = int(row["終了Week"])
+
+        status = str(row.get("ステータス", "")).strip()
+        mark = "✔" if status == "完了" else "■"
+
+        row_data = {
+            "No.": row["No."],
+            "Phase": row["Phase"],
+            "カテゴリ": row["カテゴリ"],
+            "タスク名": row["タスク名"],
+            "担当": row["担当"],
+            "ステータス": status,
+            "開始日": row["開始日"],
+            "終了日": row["終了日"],
+        }
+
+        for w, label in enumerate(week_labels):
+            row_data[label] = mark if (start_w - 1) <= w <= (end_w - 1) else ""
+
+        rows.append(row_data)
+
+    sched_df = pd.DataFrame(rows)
+    fixed = ["No.", "Phase", "カテゴリ", "タスク名", "担当", "ステータス", "開始日", "終了日"]
     others = [c for c in sched_df.columns if c not in fixed]
     return sched_df[fixed + others]
 
@@ -591,7 +657,27 @@ current_user = st.sidebar.selectbox(
 # =========================
 st.sidebar.header("フィルター")
 phase_filter = st.sidebar.multiselect("Phase", sorted(df["Phase"].dropna().unique()))
-owner_filter = st.sidebar.multiselect("担当", sorted(df["担当"].dropna().unique()))
+# ▼ 担当者名を単体ごとにバラして候補を作る
+all_owner_strings = df["担当"].dropna().astype(str)
+
+names = set()
+for s in all_owner_strings:
+    # 区切り文字を一旦カンマに統一（, ・ 、 ・ ／ などを想定）
+    normalized = (
+        s.replace("、", ",")
+         .replace("，", ",")
+         .replace("／", ",")
+         .replace("/", ",")
+    )
+    for part in normalized.split(","):
+        name = part.strip()
+        if name:
+            names.add(name)
+
+owner_options = sorted(names)
+
+owner_filter = st.sidebar.multiselect("担当", owner_options)
+
 status_filter = st.sidebar.multiselect("ステータス", sorted(df["ステータス"].dropna().unique()))
 
 # ---------- サイドバー：ヘルプ & data フォルダ管理 ----------
@@ -696,10 +782,21 @@ view_df = df.copy()
 
 if phase_filter:
     view_df = view_df[view_df["Phase"].isin(phase_filter)]
+
 if owner_filter:
-    view_df = view_df[view_df["担当"].isin(owner_filter)]
+    # 「担当」文字列に、選択した名前が1つでも含まれていれば True
+    owner_col = view_df["担当"].fillna("").astype(str)
+
+    mask_owner = pd.Series(False, index=view_df.index)
+    for name in owner_filter:
+        # 完全一致じゃなく「含まれる」でOKなら contains で十分
+        mask_owner |= owner_col.str.contains(name)
+
+    view_df = view_df[mask_owner]
+
 if status_filter:
     view_df = view_df[view_df["ステータス"].isin(status_filter)]
+
 
 # ------- 表示用の並び替え & No. 付与（型を安全にそろえる） -------
 
@@ -719,7 +816,6 @@ view_df = view_df.sort_values(["開始日", "Phase", "タスク名"]).reset_inde
 view_df["No."] = view_df.index + 1
 
 
-
 # =========================
 # 📆 進行スケジュール
 # =========================
@@ -728,27 +824,43 @@ st.subheader("📆 進行スケジュール（11月末〜3月＋延長）")
 show_schedule = st.checkbox("スケジュール表を表示する", value=True)
 
 if show_schedule:
+    # 👇 ここに表示単位セレクトを入れる
+    view_mode = st.selectbox("スケジュール表示単位", ["日次", "週次"], index=0)
+
+    # フィルター後のデータを使う
     selected_df = view_df if not view_df.empty else df
-    schedule_df = build_schedule_table(selected_df)
+
+    # 日次 or 週次 で作るテーブルを切り替え
+    if view_mode == "日次":
+        schedule_df = build_schedule_table(selected_df)
+    else:
+        schedule_df = build_schedule_table_weekly(selected_df)
 
     if schedule_df.empty:
         st.info("対象タスクが未登録のため、スケジュール表を表示できません。")
     else:
         st.caption("横スクロールで進行状況を確認できます。")
 
-        styled_schedule = (
-            schedule_df
-            .style
-            .apply(style_row, axis=1)          # 行ごとの Phase 色
-            .apply(fade_past_days, axis=None)  # 👈 全体に対して「過去を暗く」
-        )
+        # スタイル適用（過去日フェードは「日次」のときだけ適用）
+        if view_mode == "日次":
+            styled_schedule = (
+                schedule_df
+                .style
+                .apply(style_row, axis=1)          # 行ごとの Phase 色
+                .apply(fade_past_days, axis=None)  # 過去列を暗く
+            )
+        else:
+            styled_schedule = (
+                schedule_df
+                .style
+                .apply(style_row, axis=1)          # 行ごとの Phase 色のみ
+            )
 
         st.dataframe(
             styled_schedule,
             use_container_width=True,
             hide_index=True,
         )
-
 
 st.divider()
 
