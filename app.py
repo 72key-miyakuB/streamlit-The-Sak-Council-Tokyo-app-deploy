@@ -102,12 +102,13 @@ Category_OPTIONS = [
 ]
 
 Owner_OPTIONS = [
-    "店長",
+    "宮首(店長)",
     "副店長",
     "料理長",
-    "オーナー",
-    "まみさん",
-    "コンサルタント",
+    "松村さん(オーナー)",
+    "まみさん(設計・デザイン)",
+    "石川さん(コンサル)",
+    "吉池さん",
     "スタッフ",
     "外部業者"
 ]
@@ -365,26 +366,31 @@ def load_tasks():
 
     return df
 
+CATEGORY_BASE_STYLE = {
+    "開業計画": "background-color: rgba(46, 134, 193, 0.30);",     # 濃い水色
+    "物件": "background-color: rgba(39, 174, 96, 0.30);",           # 緑
+    "店舗工事": "background-color: rgba(142, 68, 173, 0.30);",     # 紫
+    "メニュー計画": "background-color: rgba(241, 196, 15, 0.35);", # 黄色
+    "スタッフ採用・教育": "background-color: rgba(231, 76, 60, 0.35);", # 赤
+    "販促営業活動": "background-color: rgba(52, 152, 219, 0.35);",  # ブルー
+    "備品関連": "background-color: rgba(243, 156, 18, 0.35);",     # オレンジ
+    "管理データシステム構築": "background-color: rgba(26, 188, 156, 0.35);", # ティール
+    "営業準備": "background-color: rgba(127, 140, 141, 0.35);",   # グレー
+    "試飲会レセプション": "background-color: rgba(155, 89, 182, 0.35);", # 明るい紫
+}
 
 def style_row(row):
     """
-    Phase と ステータス、さらに『ログイン日より前に終わっているか』で行の見た目を決める。
+    カテゴリ と ステータス、さらに『ログイン日より前に終わっているか』で
+    行の見た目を決める。
     """
 
-    phase = str(row.get("Phase", "")).lower()
-    status = str(row.get("ステータス", "")).lower()
+    # --- カテゴリベースの色分け ---
+    category = str(row.get("カテゴリ", "")).strip()
+    base = CATEGORY_BASE_STYLE.get(category, "")  # 未定義カテゴリはデフォルト（無色）
 
-    # --- Phase ベースの色分け ---
-    if "phase1" in phase:
-        base = "background-color: rgba(62, 118, 134, 0.30);"   # 薄い青
-    elif "phase2" in phase:
-        base = "background-color: rgba(62, 129, 62, 0.30);"    # 薄い緑
-    elif "phase3" in phase:
-        base = "background-color: rgba(119, 104, 49, 0.30);"   # 薄い黄
-    elif "phase4" in phase:
-        base = "background-color: rgba(143, 68, 68, 0.30);"    # 薄い赤
-    else:
-        base = ""
+    # --- ステータス取得 ---
+    status = str(row.get("ステータス", "")).lower()
 
     # --- 終了日がログイン日より前なら「過去タスク」とみなす ---
     end_val = row.get("終了日", None)
@@ -401,13 +407,14 @@ def style_row(row):
 
     # --- 完了タスクは左に緑線で強調 ---
     if status == "完了":
-        base += "border-left: 4px solid #2ecc71;"
+        base += " border-left: 4px solid #2ecc71;"
 
     # --- 過去タスクは半透明＆文字色を薄く ---
     if is_past:
         base += " opacity: 0.45; color: #bbbbbb;"
 
     return [base] * len(row)
+
 
 def fade_past_days(df: pd.DataFrame) -> pd.DataFrame:
     """
