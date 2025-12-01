@@ -796,8 +796,8 @@ if owner_filter:
 
     mask_owner = pd.Series(False, index=view_df.index)
     for name in owner_filter:
-        # 完全一致じゃなく「含まれる」でOKなら contains で十分
-        mask_owner |= owner_col.str.contains(name)
+        # regex=False にして、() や + を「ただの文字」として扱う
+        mask_owner |= owner_col.str.contains(name, regex=False, case=False)
 
     view_df = view_df[mask_owner]
 
